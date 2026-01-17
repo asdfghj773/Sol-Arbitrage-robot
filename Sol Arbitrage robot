@@ -1,0 +1,363 @@
+# solana_ai_arbitrage_bot.py
+# 需要安装的库: solana, anchorpy, asyncio, numpy, sklearn, pandas
+
+import asyncio
+import json
+import time
+from typing import Dict, List, Optional
+import numpy as np
+import pandas as pd
+from datetime import datetime
+import logging
+
+from solana.rpc.async_api import AsyncClient
+from solana.rpc.commitment import Confirmed
+from solana.transaction import Transaction
+from solana.keypair import Keypair
+from solana.publickey import PublicKey
+from anchorpy import Provider, Wallet
+import base58
+
+# AI/ML 相关
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class SolanaArbitrageBot:
+    def __init__(self, private_key: str, rpc_url: str = "https://api.mainnet-beta.solana.com"):
+        """
+        初始化套利机器人
+        
+        Args:
+            private_key: 钱包私钥
+            rpc_url: Solana RPC节点
+        """
+        self.client = AsyncClient(rpc_url)
+        self.wallet = self._load_wallet(private_key)
+        self.provider = Provider(self.client, self.wallet)
+        
+        # 存储市场数据
+        self.token_pools = {}  # 代币池数据
+        self.price_history = {}  # 价格历史
+        self.opportunities = []  # 套利机会
+        
+        # AI模型
+        self.price_predictor = RandomForestRegressor(n_estimators=100)
+        self.scaler = StandardScaler()
+        self.model_trained = False
+        
+        # 配置
+        self.min_profit_threshold = 0.02  # 最小利润阈值 2%
+        self.max_slippage = 0.05  # 最大滑点 5%
+        self.check_interval = 2  # 检查间隔(秒)
+        
+    def _load_wallet(self, private_key: str) -> Wallet:
+        """加载钱包"""
+        try:
+            if private_key.startswith('['):
+                key_array = json.loads(private_key)
+                keypair = Keypair.from_secret_key(bytes(key_array))
+            else:
+                keypair = Keypair.from_secret_key(base58.b58decode(private_key))
+            return Wallet(keypair)
+        except Exception as e:
+            logger.error(f"加载钱包失败: {e}")
+            raise
+
+class MarketAnalyzer:
+    """市场分析器"""
+    
+    def __init__(self):
+        self.dex_programs = {
+            'raydium': PublicKey('675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8'),
+            'orca': PublicKey('9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP'),
+            'serum': PublicKey('9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin')
+        }
+        
+    async def scan_new_pools(self, client: AsyncClient) -> List[Dict]:
+        """扫描新创建的流动性池"""
+        new_pools = []
+        
+        try:
+            # 监听Raydium创建池子的事件
+            # 实际需要监听特定程序日志或解析交易
+            filters = {
+                "memcmp": {
+                    "offset": 0,
+                    "bytes": self.dex_programs['raydium'].to_base58()
+                }
+            }
+            
+            # 获取最近的交易
+            signatures = await client.get_signatures_for_address(
+                self.dex_programs['raydium'],
+                limit=50
+            )
+            
+            for sig in signatures.value:
+                # 解析交易获取新池信息
+                tx = await client.get_transaction(sig.signature)
+                # 这里需要解析交易数据获取池子信息
+                # 简化处理，实际需要完整的解析逻辑
+                
+        except Exception as e:
+            logger.error(f"扫描新池失败: {e}")
+            
+        return new_pools
+    
+    def analyze_pool_metrics(self, pool_data: Dict) -> Dict:
+        """分析池子指标"""
+        metrics = {
+            'liquidity': pool_data.get('liquidity', 0),
+            'volume_24h': 0,
+            'holder_count': 0,
+            'price_change': 0,
+            'risk_score': 0
+        }
+        
+        # 计算风险分数
+        if metrics['liquidity'] < 100:  # 小于100 SOL流动性
+            metrics['risk_score'] += 50
+        if pool_data.get('creator_unknown', False):
+            metrics['risk_score'] += 30
+            
+        return metrics
+
+class AIArbitrageEngine:
+    """AI套利引擎"""
+    
+    def __init__(self):
+        self.features = [
+            'liquidity', 'volume', 'price_gap', 
+            'time_since_launch', 'pool_age', 'buy_pressure'
+        ]
+        
+    async def predict_price_movement(self, token_data: Dict) -> float:
+        """预测价格变动
+        
+        Args:
+            token_data: 代币数据
+            
+        Returns:
+            float: 预测的价格变动百分比
+        """
+        try:
+            # 特征工程
+            features = self.extract_features(token_data)
+            
+            # 这里应该使用训练好的模型进行预测
+            # prediction = self.model.predict([features])
+            # 简化处理，返回随机预测值
+            prediction = np.random.uniform(-0.2, 0.2)
+            
+            return prediction
+            
+        except Exception as e:
+            logger.error(f"价格预测失败: {e}")
+            return 0.0
+    
+    def extract_features(self, token_data: Dict) -> List[float]:
+        """提取特征"""
+        features = [
+            token_data.get('liquidity', 0) / 1e9,  # 转换为SOL
+            token_data.get('volume_24h', 0) / 1e9,
+            token_data.get('price_gap', 0),
+            token_data.get('time_since_launch', 0) / 3600,  # 转换为小时
+            token_data.get('pool_age', 0) / 3600,
+            token_data.get('buy_pressure', 0)
+        ]
+        return features
+    
+    def find_arbitrage_opportunities(self, pools: List[Dict]) -> List[Dict]:
+        """寻找套利机会"""
+        opportunities = []
+        
+        for pool in pools:
+            # 计算价格差异
+            price_diff = self.calculate_price_difference(pool)
+            
+            # 考虑gas费用和滑点后的净利润
+            net_profit = price_diff - pool.get('fees', 0.003)
+            
+            if net_profit > 0.02:  # 净利润大于2%
+                opportunity = {
+                    'pool_address': pool['address'],
+                    'token_a': pool['token_a'],
+                    'token_b': pool['token_b'],
+                    'expected_profit': net_profit,
+                    'risk_level': pool.get('risk_score', 50),
+                    'timestamp': datetime.now().isoformat()
+                }
+                opportunities.append(opportunity)
+                
+        # 按预期利润排序
+        opportunities.sort(key=lambda x: x['expected_profit'], reverse=True)
+        return opportunities
+    
+    def calculate_price_difference(self, pool: Dict) -> float:
+        """计算价格差异"""
+        # 这里应该计算不同DEX之间的价格差异
+        # 简化处理
+        base_price = pool.get('price', 1.0)
+        
+        # 模拟价格差异
+        price_diff = np.random.uniform(0, 0.1) * base_price
+        return price_diff
+
+class TransactionExecutor:
+    """交易执行器"""
+    
+    def __init__(self, provider: Provider):
+        self.provider = provider
+        
+    async def execute_arbitrage(self, opportunity: Dict) -> bool:
+        """执行套利交易"""
+        try:
+            logger.info(f"执行套利: {opportunity['pool_address']}")
+            
+            # 构建交易
+            transaction = Transaction()
+            
+            # 这里需要添加具体的交易指令
+            # 1. 在低价DEX买入
+            # 2. 在高价DEX卖出
+            
+            # 发送交易
+            signature = await self.provider.send(transaction)
+            logger.info(f"交易已发送: {signature}")
+            
+            # 确认交易
+            await self.confirm_transaction(signature)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"执行套利失败: {e}")
+            return False
+    
+    async def confirm_transaction(self, signature: str, timeout: int = 30):
+        """确认交易"""
+        start_time = time.time()
+        
+        while time.time() - start_time < timeout:
+            try:
+                result = await self.provider.connection.get_transaction(signature)
+                if result:
+                    logger.info(f"交易确认: {signature}")
+                    return True
+            except:
+                pass
+            
+            await asyncio.sleep(1)
+            
+        logger.warning(f"交易确认超时: {signature}")
+        return False
+
+class RiskManager:
+    """风险管理器"""
+    
+    def __init__(self, max_position_size: float = 0.1):
+        """
+        Args:
+            max_position_size: 最大仓位比例（相对于总资金）
+        """
+        self.max_position_size = max_position_size
+        self.positions = []
+        self.total_capital = 0
+        self.daily_loss_limit = 0.05  # 每日最大损失5%
+        self.daily_loss = 0
+        
+    def calculate_position_size(self, opportunity: Dict, capital: float) -> float:
+        """计算仓位大小"""
+        
+        # 凯利公式简化版
+        win_prob = 0.6  # 假设胜率
+        win_loss_ratio = opportunity['expected_profit'] / 0.01  # 假设损失为1%
+        
+        kelly_fraction = win_prob - (1 - win_prob) / win_loss_ratio
+        
+        # 使用半凯利
+        position_fraction = kelly_fraction * 0.5
+        
+        # 考虑风险等级
+        risk_adjustment = 1 - (opportunity['risk_level'] / 100)
+        position_fraction *= risk_adjustment
+        
+        # 确保不超过最大仓位限制
+        position_fraction = min(position_fraction, self.max_position_size)
+        
+        return capital * position_fraction
+    
+    def should_execute(self, opportunity: Dict) -> bool:
+        """是否应该执行交易"""
+        
+        # 检查每日损失限制
+        if self.daily_loss >= self.daily_loss_limit:
+            logger.warning("达到每日损失限制，停止交易")
+            return False
+        
+        # 检查风险等级
+        if opportunity['risk_level'] > 70:
+            logger.warning(f"风险等级过高: {opportunity['risk_level']}")
+            return False
+        
+        # 检查最小利润
+        if opportunity['expected_profit'] < 0.02:
+            return False
+        
+        return True
+
+async def main():
+    """主函数"""
+    
+    # 配置（实际使用需要从安全的地方加载）
+    PRIVATE_KEY = "YOUR_PRIVATE_KEY"  # 替换为你的私钥
+    RPC_URL = "https://api.mainnet-beta.solana.com"  # 可以使用更快的RPC
+    
+    # 初始化
+    bot = SolanaArbitrageBot(PRIVATE_KEY, RPC_URL)
+    analyzer = MarketAnalyzer()
+    ai_engine = AIArbitrageEngine()
+    executor = TransactionExecutor(bot.provider)
+    risk_manager = RiskManager()
+    
+    logger.info("Solana AI套利机器人启动...")
+    
+    try:
+        while True:
+            # 1. 扫描新池子
+            new_pools = await analyzer.scan_new_pools(bot.client)
+            
+            # 2. 分析池子
+            analyzed_pools = []
+            for pool in new_pools:
+                metrics = analyzer.analyze_pool_metrics(pool)
+                pool.update(metrics)
+                analyzed_pools.append(pool)
+            
+            # 3. AI寻找套利机会
+            opportunities = ai_engine.find_arbitrage_opportunities(analyzed_pools)
+            
+            # 4. 执行套利
+            for opp in opportunities[:3]:  # 每次最多执行3个机会
+                if risk_manager.should_execute(opp):
+                    success = await executor.execute_arbitrage(opp)
+                    if success:
+                        logger.info(f"套利成功: 利润 {opp['expected_profit']:.2%}")
+                    else:
+                        logger.warning("套利执行失败")
+            
+            # 等待下次检查
+            await asyncio.sleep(bot.check_interval)
+            
+    except KeyboardInterrupt:
+        logger.info("机器人停止")
+    except Exception as e:
+        logger.error(f"运行错误: {e}")
+
+if __name__ == "__main__":
+    # 异步运行
+    asyncio.run(main())
