@@ -1,0 +1,36 @@
+# config.yaml
+solana:
+  rpc_url: "https://api.mainnet-beta.solana.com"
+  ws_url: "wss://api.mainnet-beta.solana.com"
+  commitment: "confirmed"
+
+wallet:
+  private_key: "${PRIVATE_KEY}"  # 从环境变量读取
+  public_key: ""
+  
+trading:
+  min_profit_threshold: 0.02
+  max_slippage: 0.05
+  max_position_size: 0.1
+  daily_loss_limit: 0.05
+  
+dex:
+  programs:
+    raydium: "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"
+    orca: "9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP"
+    serum: "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"
+  
+ai:
+  model_path: "./models/price_predictor.pkl"
+  training_interval: 3600  # 每小时重新训练
+  features:
+    - liquidity
+    - volume_24h
+    - price_gap
+    - holder_count
+    - social_sentiment
+  
+monitoring:
+  telegram_bot_token: "${TELEGRAM_BOT_TOKEN}"
+  alert_channel: "-1001234567890"
+  health_check_interval: 60
