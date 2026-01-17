@@ -1,0 +1,22 @@
+#!/bin/bash
+# install.sh
+
+echo "安装Solana AI套利机器人..."
+
+# 创建虚拟环境
+python3 -m venv venv
+source venv/bin/activate
+
+# 安装依赖
+pip install solana anchorpy numpy pandas scikit-learn
+pip install asyncio websockets python-dotenv pyyaml
+
+# 创建目录结构
+mkdir -p logs data models config
+
+# 复制配置文件
+cp config.example.yaml config/config.yaml
+
+echo "安装完成！"
+echo "请编辑 config/config.yaml 配置文件"
+echo "然后运行: python solana_ai_arbitrage_bot.py"
